@@ -10,6 +10,10 @@ confirmed potty trip" use case.
 [![Blueprint](https://img.shields.io/badge/type-blueprint-blue)](https://www.home-assistant.io/docs/automation/using_blueprints/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+> Replace `RedBeardBrownEyes/Dog-Save-the-Lawn` throughout this file with your actual
+> GitHub path once this repo is live — the import buttons and raw links
+> depend on it.
+
 ---
 
 ## How it works
@@ -49,7 +53,7 @@ tracking.
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
   - [Step 1: Set up the sprinkler script](#step-1-set-up-the-sprinkler-script)
-  - [Step 2: Enable animal detection](#step-2-enable-animal-detection-unifi-protect-users)
+  - [Step 2: Set up your animal detection sensor](#step-2-set-up-your-animal-detection-sensor)
   - [Step 3: Import the detection automation blueprint](#step-3-import-the-detection-automation-blueprint)
   - [Step 4: Optional helper entities](#step-4-optional-create-helper-entities)
   - [Step 5: Create the automation](#step-5-create-the-automation-from-the-blueprint)
@@ -77,11 +81,11 @@ tracking.
 - **A door sensor** exposed as a `binary_sensor` with `device_class: door`
   (a standard Zigbee/Z-Wave contact sensor, or any door/lock integration
   that exposes open/closed state).
-- **A camera or sensor that detects animals**, exposed as a `binary_sensor`
-  that turns `on` when an animal is seen. This was built and tested with a
-  **UniFi Protect** camera (e.g. G6 Bullet) with Animal Detection enabled,
-  which the UniFi integration exposes as an `Animal detected` binary
-  sensor. Any other integration that exposes a similar sensor works too.
+- **A camera or NVR that detects animals**, exposed in Home Assistant as a
+  `binary_sensor` that turns `on` when an animal is seen. Tested with
+  **UniFi Protect** and **Reolink**, and works with **Frigate** or any
+  other integration that exposes a similar sensor — see Step 2 for
+  platform-specific instructions.
 - **A script** that does the thing you actually want to happen once the
   trip is confirmed. Step 1 below covers generating one for Hydrawise, or
   writing a short custom one for other controllers.
@@ -117,16 +121,72 @@ manually:
 
 Not on Hydrawise? Jump to [Other sprinkler controllers](#other-sprinkler-controllers-not-hydrawise).
 
-### Step 2: Enable animal detection (UniFi Protect users)
+### Step 2: Set up your animal detection sensor
+
+The automation just needs **any `binary_sensor` that turns `on` when an
+animal is seen.** It doesn't care which camera brand or integration
+provides it. Pick your platform below, or skip to "Finding it yourself"
+if you're on something not listed.
+
+<details>
+<summary><strong>UniFi Protect</strong></summary>
 
 In the UniFi Protect app: **Settings → your camera → Detections → enable
 "Animal."** Then in Home Assistant, go to **Settings → Devices & Services →
 Entities**, search for your camera, and confirm you have both:
 
 - `binary_sensor.<name>_animal_detected` — the event sensor (turns on when
-  an animal is seen). **This is the one you want for Step 5.**
-- `binary_sensor.<name>_animal_detection` — a toggle controlling whether
-  the feature is enabled. Leave it on, but don't use it as the trigger.
+  an animal is seen). **Use this one.**
+- `binary_sensor.<name>_animal_detection` — a toggle for whether the
+  feature is enabled. Leave it on, but don't use it as the trigger.
+
+</details>
+
+<details>
+<summary><strong>Reolink</strong></summary>
+
+Reolink's native Home Assistant integration exposes detection sensors per
+camera automatically (no separate app setup needed on supported models):
+
+- `binary_sensor.<camera name>_animal` or `binary_sensor.<camera name>_pet`
+  — exact name depends on your camera model. **Use whichever one your
+  camera exposes.**
+- Reolink also exposes `_person`, `_vehicle`, and `_visitor` sensors the
+  same way, if you ever want variations on this automation.
+
+</details>
+
+<details>
+<summary><strong>Frigate (self-hosted NVR with local object detection)</strong></summary>
+
+Frigate detects objects per camera and exposes a binary sensor per object
+type once you've configured it to watch for `dog` (or `cat`) in your
+`config.yaml`:
+
+- `binary_sensor.frigate_<camera name>_dog` (or `_cat`, depending on your
+  Frigate object config)
+- This requires Frigate itself to be set up with an object detector
+  (Coral USB TPU, OpenVINO, or CPU) — it's more setup than a
+  cloud/camera-native option, but works with almost any RTSP camera and
+  runs fully locally.
+
+</details>
+
+<details>
+<summary><strong>Finding it yourself (any other platform)</strong></summary>
+
+1. Settings → Devices & Services → **Entities**
+2. Search for your camera's name, or search "animal," "pet," or "dog"
+3. Look for a `binary_sensor` that changes state (`off` → `on`) when an
+   animal walks by — test it by watching **Developer Tools → States**
+   while your dog is in frame
+4. If your camera/NVR doesn't offer per-species detection at all, it
+   likely only supports generic "motion" — that will trigger more false
+   positives (squirrels, leaves, etc.) but can still work as a fallback,
+   since the door-sequence timeouts will filter out most stray triggers
+
+</details>
+
 
 ### Step 3: Import the detection automation blueprint
 
@@ -216,7 +276,7 @@ exists and can be triggered by `script.turn_on`.
 | Symptom | Likely cause |
 |---|---|
 | Automation never triggers | Confirm the door sensor's `device_class` is `door` and it flips `off`→`on` on open (check **Developer Tools → States**) |
-| Fails with "no animal detected" | Animal detection may be disabled on the camera, the dog may be out of frame, or sensitivity needs tuning in the Protect app |
+| Fails with "no animal detected" | Animal detection may be disabled on the camera, the dog may be out of frame, sensitivity needs tuning, or you selected the wrong sensor (e.g. a "detection enabled" toggle instead of the actual event sensor — see Step 2) |
 | Fails with "door never closed" | Timeout too short for how long the door's typically left open — raise **Door Close Timeout** |
 | Sprinklers never run even though everything looks right | Check **Cooldown** — if it ran recently, it intentionally skips |
 | Automation runs but nothing happens | Confirm the **Script to Run** works standalone: Settings → Automations & Scenes → Scripts → Run |
