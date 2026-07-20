@@ -1,0 +1,65 @@
+blueprint:
+  name: Hydrawise Multi-Zone Watering Run
+  description: >
+    Runs one or more Hydrawise watering zones in sequence, each for a set
+    duration, with a staggered gap between zones so they don't run at the
+    same time. Originally built to dilute dog urine on the lawn after a
+    potty trip, but works for any "run these zones back to back" need.
+  domain: script
+  source_url: https://github.com/RedBeardBrownEyes/Dog-Save-the-Lawn/blob/main/hydrawise_zone_run.yaml
+  input:
+    zones:
+      name: Zones to Water
+      description: >
+        One or more Hydrawise zone entities to run, in the order you want
+        them to run. Each one will run for the full duration below before
+        the next one starts.
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+
+    duration_minutes:
+      name: Duration (minutes)
+      description: How long to run each zone for
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: minutes
+
+    stagger_seconds:
+      name: Gap Between Zones (seconds)
+      description: >
+        How long to wait after one zone finishes before starting the next.
+        Set to 0 to start the next zone immediately.
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 300
+          unit_of_measurement: seconds
+
+sequence:
+  - repeat:
+      for_each: !input zones
+      sequence:
+        - action: hydrawise.start_watering
+          metadata: {}
+          target:
+            entity_id: "{{ repeat.item }}"
+          data:
+            duration: !input duration_minutes
+
+        - if:
+            - condition: template
+              value_template: "{{ not repeat.last }}"
+          then:
+            - delay:
+                hours: 0
+                minutes: !input duration_minutes
+                seconds: !input stagger_seconds
+                milliseconds: 0
+
+mode: single

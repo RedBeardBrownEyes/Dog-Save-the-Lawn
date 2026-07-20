@@ -1,0 +1,242 @@
+blueprint:
+  name: Dog Potty Door-to-Door Automation
+  description: >
+    Tracks a dog's potty trip from start to finish using a door sensor and
+    an animal-detection sensor (e.g. a UniFi Protect camera), then runs a
+    script once the dog is back inside. Built for sprinkler dilution after
+    a dog urinates on the lawn, but the triggered script can be anything.
+
+    Sequence: door opens -> door closes -> animal detected in yard ->
+    door opens again -> door closes -> run script.
+
+    Includes an optional cooldown to prevent re-triggering on back-to-back
+    trips, and an optional status helper for dashboard visibility.
+  domain: automation
+  source_url: https://github.com/RedBeardBrownEyes/Dog-Save-the-Lawn/blob/main/dog_potty_dilution.yaml
+  input:
+    door_sensor:
+      name: Door Sensor
+      description: Binary sensor for the door the dog goes out/in through
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: door
+
+    animal_sensor:
+      name: Animal Detection Sensor
+      description: Binary sensor that turns on when the camera detects an animal
+      selector:
+        entity:
+          domain: binary_sensor
+
+    trigger_script:
+      name: Script to Run
+      description: Script to run once the dog is back inside (e.g. sprinklers)
+      selector:
+        entity:
+          domain: script
+
+    cooldown_seconds:
+      name: Cooldown (seconds)
+      description: >
+        Minimum time between runs to avoid re-triggering on back-to-back
+        trips. Set to 0 to disable.
+      default: 600
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+
+    door_close_timeout:
+      name: Door Close Timeout
+      description: How long to wait for the door to close after opening
+      default: "00:02:00"
+      selector:
+        time: {}
+
+    detection_timeout:
+      name: Detection / Return Timeout
+      description: >
+        How long to wait for the animal to be detected, and separately,
+        how long to wait for the dog to come back to the door
+      default: "00:20:00"
+      selector:
+        time: {}
+
+    status_helper:
+      name: Status Helper (optional)
+      description: >
+        Optional input_text helper. If set, the automation will write live
+        progress and success/failure messages to it, which you can show on
+        a dashboard. Leave blank to skip.
+      default: ""
+      selector:
+        entity:
+          domain: input_text
+
+    last_run_helper:
+      name: Last Run Helper (optional)
+      description: >
+        Optional input_datetime helper used to enforce the cooldown above
+        and to show the last successful run time on a dashboard. Leave
+        blank to skip the cooldown check entirely.
+      default: ""
+      selector:
+        entity:
+          domain: input_datetime
+
+trigger:
+  - platform: state
+    entity_id: !input door_sensor
+    from: "off"
+    to: "on"
+
+variables:
+  status_helper: !input status_helper
+  last_run_helper: !input last_run_helper
+  cooldown_seconds: !input cooldown_seconds
+
+condition:
+  - condition: template
+    value_template: >
+      {{ last_run_helper == '' or
+         (as_timestamp(now()) - as_timestamp(states(last_run_helper), 0)) > cooldown_seconds }}
+
+action:
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Waiting for door to close..."
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input door_sensor
+        from: "on"
+        to: "off"
+    timeout: !input door_close_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - door never closed"
+      - stop: "Door didn't close in time"
+
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Waiting for dog detection..."
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input animal_sensor
+        to: "on"
+    timeout: !input detection_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - no animal detected"
+      - stop: "No animal detected in time"
+
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Waiting for door to open (return)..."
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input door_sensor
+        from: "off"
+        to: "on"
+    timeout: !input detection_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - door never reopened"
+      - stop: "Door didn't reopen in time"
+
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Waiting for door to close (final)..."
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input door_sensor
+        from: "on"
+        to: "off"
+    timeout: !input door_close_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - door never closed after return"
+      - stop: "Door didn't close after return"
+
+  - service: script.turn_on
+    target:
+      entity_id: !input trigger_script
+
+  - if: "{{ last_run_helper != '' }}"
+    then:
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: "{{ last_run_helper }}"
+        data:
+          timestamp: "{{ as_timestamp(now()) }}"
+
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Success - ran at {{ now().strftime('%-I:%M %p') }}"
+
+mode: single
