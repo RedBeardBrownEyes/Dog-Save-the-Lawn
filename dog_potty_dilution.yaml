@@ -9,6 +9,13 @@ blueprint:
     Sequence: door opens -> door closes -> animal detected in yard ->
     door opens again -> door closes -> run script.
 
+    If the door opens and closes again for an unrelated reason (e.g. you
+    step outside yourself while she's still in the yard, or the family
+    heads out onto a deck), the automation checks that the animal sensor
+    has actually cleared before running the script - if she's still
+    visible outside, it waits for the real return instead of firing
+    early, up to a configurable number of attempts.
+
     Includes an optional cooldown to prevent re-triggering on back-to-back
     trips, and an optional status helper for dashboard visibility.
   domain: automation
@@ -86,6 +93,20 @@ blueprint:
         entity:
           domain: input_datetime
 
+    max_return_attempts:
+      name: Max Return Attempts
+      description: >
+        How many times to allow the door to open and close before giving
+        up, if the animal sensor still shows her outside each time. Raise
+        this if other family members also use the same door while she's
+        out (e.g. going out onto a deck), since each of those counts as
+        an attempt too.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 30
+
 trigger:
   - platform: state
     entity_id: !input door_sensor
@@ -96,6 +117,8 @@ variables:
   status_helper: !input status_helper
   last_run_helper: !input last_run_helper
   cooldown_seconds: !input cooldown_seconds
+  animal_sensor: !input animal_sensor
+  max_return_attempts: !input max_return_attempts
 
 condition:
   - condition: template
@@ -169,17 +192,84 @@ action:
         data:
           value: "Waiting for door to open (return)..."
 
-  - wait_for_trigger:
-      - platform: state
-        entity_id: !input door_sensor
-        from: "off"
-        to: "on"
-    timeout: !input detection_timeout
-    continue_on_timeout: true
+  - repeat:
+      until:
+        - condition: template
+          value_template: >
+            {{ states(animal_sensor) == 'off' or repeat.index >= max_return_attempts }}
+      sequence:
+        - wait_for_trigger:
+            - platform: state
+              entity_id: !input door_sensor
+              from: "off"
+              to: "on"
+          timeout: !input detection_timeout
+          continue_on_timeout: true
+
+        - if:
+            - condition: template
+              value_template: "{{ wait.trigger is none }}"
+          then:
+            - if: "{{ status_helper != '' }}"
+              then:
+                - service: input_text.set_value
+                  target:
+                    entity_id: "{{ status_helper }}"
+                  data:
+                    value: "Failed - door never reopened"
+            - stop: "Door didn't reopen in time"
+
+        - if: "{{ status_helper != '' }}"
+          then:
+            - service: input_text.set_value
+              target:
+                entity_id: "{{ status_helper }}"
+              data:
+                value: "Waiting for door to close (final)..."
+
+        - wait_for_trigger:
+            - platform: state
+              entity_id: !input door_sensor
+              from: "on"
+              to: "off"
+          timeout: !input door_close_timeout
+          continue_on_timeout: true
+
+        - if:
+            - condition: template
+              value_template: "{{ wait.trigger is none }}"
+          then:
+            - if: "{{ status_helper != '' }}"
+              then:
+                - service: input_text.set_value
+                  target:
+                    entity_id: "{{ status_helper }}"
+                  data:
+                    value: "Failed - door never closed after return"
+            - stop: "Door didn't close after return"
+
+        # If she's still visible outside after the door closes, someone
+        # else likely used the door for something unrelated (checking the
+        # mail, gardening, etc). Don't treat this as her being back inside
+        # - the loop's "until" check above will send it around again to
+        # wait for the real return instead of firing the script early.
+        - if:
+            - condition: template
+              value_template: "{{ states(animal_sensor) == 'on' }}"
+          then:
+            - if: "{{ status_helper != '' }}"
+              then:
+                - service: input_text.set_value
+                  target:
+                    entity_id: "{{ status_helper }}"
+                  data:
+                    value: >
+                      Door closed but she's still outside - waiting
+                      (attempt {{ repeat.index }} of {{ max_return_attempts }})...
 
   - if:
       - condition: template
-        value_template: "{{ wait.trigger is none }}"
+        value_template: "{{ states(animal_sensor) == 'on' }}"
     then:
       - if: "{{ status_helper != '' }}"
         then:
@@ -187,37 +277,8 @@ action:
             target:
               entity_id: "{{ status_helper }}"
             data:
-              value: "Failed - door never reopened"
-      - stop: "Door didn't reopen in time"
-
-  - if: "{{ status_helper != '' }}"
-    then:
-      - service: input_text.set_value
-        target:
-          entity_id: "{{ status_helper }}"
-        data:
-          value: "Waiting for door to close (final)..."
-
-  - wait_for_trigger:
-      - platform: state
-        entity_id: !input door_sensor
-        from: "on"
-        to: "off"
-    timeout: !input door_close_timeout
-    continue_on_timeout: true
-
-  - if:
-      - condition: template
-        value_template: "{{ wait.trigger is none }}"
-    then:
-      - if: "{{ status_helper != '' }}"
-        then:
-          - service: input_text.set_value
-            target:
-              entity_id: "{{ status_helper }}"
-            data:
-              value: "Failed - door never closed after return"
-      - stop: "Door didn't close after return"
+              value: "Failed - gave up waiting for her to come inside"
+      - stop: "Animal sensor never cleared after repeated attempts"
 
   - service: script.turn_on
     target:
