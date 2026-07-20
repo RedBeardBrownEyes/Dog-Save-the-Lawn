@@ -96,7 +96,7 @@ tracking.
 
 ### Step 1: Set up the sprinkler script
 
-[![Add to my Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FYOUR_USERNAME%2FYOUR_REPO%2Fmain%2Fhydrawise_zone_run.yaml)
+[![Add to my Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FRedBeardBrownEyes%2FDog-Save-the-Lawn%2Fmain%2Fhydrawise_zone_run.yaml)
 
 Click the badge above (once this repo is on GitHub) to import the
 **Hydrawise Multi-Zone Watering Run** script blueprint directly, or import
@@ -134,7 +134,7 @@ Entities**, search for your camera, and confirm you have both:
 
 ### Step 3: Import the detection automation blueprint
 
-[![Add to my Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FYOUR_USERNAME%2FYOUR_REPO%2Fmain%2Fdog_potty_dilution.yaml)
+[![Add to my Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FRedBeardBrownEyes%2FDog-Save-the-Lawn%2Fmain%2Fdog_potty_dilution.yaml)
 
 Click the badge, or import manually:
 
