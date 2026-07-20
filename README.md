@@ -10,10 +10,6 @@ confirmed potty trip" use case.
 [![Blueprint](https://img.shields.io/badge/type-blueprint-blue)](https://www.home-assistant.io/docs/automation/using_blueprints/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> Replace `RedBeardBrownEyes/Dog-Save-the-Lawn` throughout this file with your actual
-> GitHub path once this repo is live — the import buttons and raw links
-> depend on it.
-
 ---
 
 ## How it works
