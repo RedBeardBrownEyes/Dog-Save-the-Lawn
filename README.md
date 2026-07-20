@@ -10,10 +10,6 @@ confirmed potty trip" use case.
 [![Blueprint](https://img.shields.io/badge/type-blueprint-blue)](https://www.home-assistant.io/docs/automation/using_blueprints/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> Replace `RedBeardBrownEyes/Dog-Save-the-Lawn` throughout this file with your actual
-> GitHub path once this repo is live — the import buttons and raw links
-> depend on it.
-
 ---
 
 ## How it works
@@ -98,7 +94,7 @@ tracking.
 
 [![Add to my Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FRedBeardBrownEyes%2FDog-Save-the-Lawn%2Fmain%2Fhydrawise_zone_run.yaml)
 
-Click the badge above (once this repo is on GitHub) to import the
+Click the badge above to import the
 **Hydrawise Multi-Zone Watering Run** script blueprint directly, or import
 manually:
 
