@@ -24,10 +24,10 @@ flowchart TD
     D -- No --> F3[❌ Stop — log failure]
     D -- Yes --> E{Door closes<br/>within timeout?}
     E -- No --> F4[❌ Stop — log failure]
-    E -- Yes --> S{Still detected<br/>outside?}
-    S -- Yes, up to N tries --> D
-    S -- No --> G[✅ Run your script]
-    S -- Yes, limit exceeded --> F5[❌ Stop — log failure]
+    E -- Yes --> S{Yard stays clear for<br/>the full stability window?}
+    S -- Detected again --> S
+    S -- Yes --> G[✅ Run your script]
+    S -- Retries exhausted --> F5[❌ Stop — log failure]
     G --> H[🚿 Sprinklers / lights /<br/>notification / anything]
 
     style A fill:#2d6a4f,color:#fff
@@ -45,17 +45,16 @@ something unrelated to a potty trip) won't accidentally fire your script —
 the automation just quietly stops and logs why, if you've enabled status
 tracking.
 
-There's one extra safeguard on the return leg: if the door opens and
-closes again for a reason that has nothing to do with the dog — say, you
-step outside yourself while she's still in the yard, or the family heads
-out onto a deck — the automation checks whether she's still visible on
-camera before treating that as her being back inside. If she's still
-detected outside, it loops back and waits for the real return instead of
-firing the script early, up to the **Max Return Attempts** you set (each
-extra door cycle from family members counts as one attempt). If you go
-out specifically to call her in and she comes back with you, this doesn't
-change anything — the door closing with her actually inside completes the
-sequence normally.
+There's an extra safeguard after the return door closes: rather than
+assuming the trip is over the instant the door closes, the automation
+watches the animal sensor (and, optionally, a person sensor) and waits
+until it's been **continuously clear for a stability window** — a few
+minutes, by default — before running the script. If anything is detected
+again during that window, the clock resets and it waits again. This
+handles cases the door alone can't: the dog stepping back outside
+briefly, a family member still lingering in the garden or on a deck, or
+someone using the same door for something unrelated, all without needing
+to track how many times the door itself opens and closes.
 
 Optionally, you can also set a **Person Detection Sensor**. If configured,
 the same safeguard applies to people too — so if a family member is still
@@ -247,7 +246,8 @@ blueprint** → **"Dog Potty Door-to-Door Automation."** Then fill in:
 | Detection / Return Timeout | How long to wait for detection, and separately for the return trip | 20 min |
 | Status Helper *(optional)* | From Step 4 | blank |
 | Last Run Helper *(optional)* | From Step 4 | blank |
-| Max Return Attempts | How many door open/close cycles to tolerate before giving up if she's still detected outside each time. Raise this if other family members also use the same door while she's out (e.g. heading onto a deck) | 5 |
+| Yard-Clear Stability Window (minutes) | How long the yard must stay continuously clear of the animal (and person, if set) after the return door closes, before the script runs | 5 |
+| Max Stability Retries | Safety cap on how many times the stability window can reset before giving up, in case a sensor flickers indefinitely | 10 |
 
 Save.
 
@@ -299,7 +299,8 @@ exists and can be triggered by `script.turn_on`.
 | Fails with "no animal detected" | Animal detection may be disabled on the camera, the dog may be out of frame, sensitivity needs tuning, or you selected the wrong sensor (e.g. a "detection enabled" toggle instead of the actual event sensor — see Step 2) |
 | Fails with "door never closed" | Timeout too short for how long the door's typically left open — raise **Door Close Timeout** |
 | Sprinklers never run even though everything looks right | Check **Cooldown** — if it ran recently, it intentionally skips |
-| Fails with "gave up waiting for the yard to be clear" | The animal (or person, if configured) sensor stayed "on" through your **Max Return Attempts** limit — likely the camera is falsely detecting something as an animal/person (a plant moving, a shadow), the family is cycling the door more than expected (raise the limit), or someone/she is genuinely lingering outside longer than the door cycles suggest |
+| Fails with "yard never cleared" / "yard never cleared of people" | The animal or person sensor never went "off" at all within the detection timeout — check the sensor is working and the camera has a clear view |
+| Fails with "yard never stayed clear long enough" | Something keeps getting detected right before the stability window finishes — likely a flickering false detection (a plant moving, a shadow), or the family is genuinely still using the yard. Raise **Max Stability Retries** or shorten the **Stability Window** if this happens often |
 | Automation runs but nothing happens | Confirm the **Script to Run** works standalone: Settings → Automations & Scenes → Scripts → Run |
 
 ---

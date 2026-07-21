@@ -3,20 +3,20 @@ blueprint:
   description: >
     Tracks a dog's potty trip from start to finish using a door sensor and
     an animal-detection sensor (e.g. a UniFi Protect camera), then runs a
-    script once the dog is back inside. Built for sprinkler dilution after
-    a dog urinates on the lawn, but the triggered script can be anything.
+    script once the yard is confirmed clear. Built for sprinkler dilution
+    after a dog urinates on the lawn, but the triggered script can be
+    anything.
 
     Sequence: door opens -> door closes -> animal detected in yard ->
-    door opens again -> door closes -> run script.
+    door opens again -> door closes -> yard stays clear for a stability
+    window -> run script.
 
-    If the door opens and closes again for an unrelated reason (e.g. you
-    step outside yourself while she's still in the yard, or the family
-    heads out onto a deck), the automation checks that the animal sensor
-    has actually cleared before running the script - if she's still
-    visible outside, it waits for the real return instead of firing
-    early, up to a configurable number of attempts. Optionally, it can
-    also wait for a person-detection sensor to clear, in case a family
-    member is still out in the yard when the dog comes back in.
+    Rather than assuming the dog is back the moment the door closes, the
+    automation waits until the animal sensor (and, optionally, a person
+    sensor) has been continuously clear for a few minutes before running
+    the script. This avoids false triggers from someone else using the
+    door, a family member still being out in the yard, or the dog
+    stepping back outside briefly.
 
     Includes an optional cooldown to prevent re-triggering on back-to-back
     trips, and an optional status helper for dashboard visibility.
@@ -42,7 +42,7 @@ blueprint:
       name: Person Detection Sensor (optional)
       description: >
         Optional binary sensor that turns on when the camera detects a
-        person. If set, the automation will also wait for the yard to be
+        person. If set, the automation will also require the yard to be
         clear of people before running the script - useful if a family
         member might still be out in the garden or on the deck when the
         dog comes back in. Leave blank to skip this check.
@@ -53,7 +53,7 @@ blueprint:
 
     trigger_script:
       name: Script to Run
-      description: Script to run once the dog is back inside (e.g. sprinklers)
+      description: Script to run once the yard is confirmed clear (e.g. sprinklers)
       selector:
         entity:
           domain: script
@@ -86,6 +86,35 @@ blueprint:
       selector:
         time: {}
 
+    stability_minutes:
+      name: Yard-Clear Stability Window (minutes)
+      description: >
+        After the return door closes, how long the animal (and person,
+        if set) sensor must stay continuously clear before the script
+        runs. If anything is detected again during this window, the
+        clock resets and it waits again - this handles cases where the
+        dog steps back outside, or a family member is still out in the
+        garden or on a deck, without needing to track door cycles at all.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 30
+          unit_of_measurement: minutes
+
+    max_stability_checks:
+      name: Max Stability Retries
+      description: >
+        Safety cap on how many times the stability window can reset
+        before the automation gives up (protects against a sensor that
+        flickers on/off indefinitely). Most trips will only need this
+        to happen once or twice.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 50
+
     status_helper:
       name: Status Helper (optional)
       description: >
@@ -108,20 +137,6 @@ blueprint:
         entity:
           domain: input_datetime
 
-    max_return_attempts:
-      name: Max Return Attempts
-      description: >
-        How many times to allow the door to open and close before giving
-        up, if the animal sensor still shows her outside each time. Raise
-        this if other family members also use the same door while she's
-        out (e.g. going out onto a deck), since each of those counts as
-        an attempt too.
-      default: 5
-      selector:
-        number:
-          min: 1
-          max: 30
-
 trigger:
   - platform: state
     entity_id: !input door_sensor
@@ -134,7 +149,8 @@ variables:
   cooldown_seconds: !input cooldown_seconds
   animal_sensor: !input animal_sensor
   person_sensor: !input person_sensor
-  max_return_attempts: !input max_return_attempts
+  stability_minutes: !input stability_minutes
+  max_stability_checks: !input max_stability_checks
 
 condition:
   - condition: template
@@ -208,75 +224,136 @@ action:
         data:
           value: "Waiting for door to open (return)..."
 
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input door_sensor
+        from: "off"
+        to: "on"
+    timeout: !input detection_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - door never reopened"
+      - stop: "Door didn't reopen in time"
+
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Waiting for door to close (final)..."
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input door_sensor
+        from: "on"
+        to: "off"
+    timeout: !input door_close_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - door never closed after return"
+      - stop: "Door didn't close after return"
+
+  # Stability check: rather than trusting the door close as proof the
+  # yard is empty, keep watching the animal (and optional person) sensor
+  # until it has been continuously "off" for the full stability window.
+  # Each time something is detected again during the window, the clock
+  # resets and it tries again, up to max_stability_checks.
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Confirming yard is clear..."
+
   - repeat:
       until:
         - condition: template
-          value_template: >
-            {{ (states(animal_sensor) == 'off' and
-                (person_sensor == '' or states(person_sensor) == 'off'))
-               or repeat.index >= max_return_attempts }}
+          value_template: "{{ wait.trigger is none or repeat.index >= max_stability_checks }}"
       sequence:
+        - if:
+            - condition: template
+              value_template: "{{ states(animal_sensor) != 'off' }}"
+          then:
+            - wait_for_trigger:
+                - platform: state
+                  entity_id: !input animal_sensor
+                  to: "off"
+              timeout: !input detection_timeout
+              continue_on_timeout: true
+
+            - if:
+                - condition: template
+                  value_template: "{{ states(animal_sensor) != 'off' }}"
+              then:
+                - if: "{{ status_helper != '' }}"
+                  then:
+                    - service: input_text.set_value
+                      target:
+                        entity_id: "{{ status_helper }}"
+                      data:
+                        value: "Failed - yard never cleared"
+                - stop: "Animal sensor never cleared"
+
+        - if:
+            - condition: template
+              value_template: "{{ person_sensor != '' and states(person_sensor) != 'off' }}"
+          then:
+            - wait_for_trigger:
+                - platform: state
+                  entity_id: !input person_sensor
+                  to: "off"
+              timeout: !input detection_timeout
+              continue_on_timeout: true
+
+            - if:
+                - condition: template
+                  value_template: "{{ states(person_sensor) != 'off' }}"
+              then:
+                - if: "{{ status_helper != '' }}"
+                  then:
+                    - service: input_text.set_value
+                      target:
+                        entity_id: "{{ status_helper }}"
+                      data:
+                        value: "Failed - yard never cleared of people"
+                - stop: "Person sensor never cleared"
+
         - wait_for_trigger:
             - platform: state
-              entity_id: !input door_sensor
-              from: "off"
+              entity_id: !input animal_sensor
               to: "on"
-          timeout: !input detection_timeout
-          continue_on_timeout: true
-
-        - if:
-            - condition: template
-              value_template: "{{ wait.trigger is none }}"
-          then:
-            - if: "{{ status_helper != '' }}"
-              then:
-                - service: input_text.set_value
-                  target:
-                    entity_id: "{{ status_helper }}"
-                  data:
-                    value: "Failed - door never reopened"
-            - stop: "Door didn't reopen in time"
-
-        - if: "{{ status_helper != '' }}"
-          then:
-            - service: input_text.set_value
-              target:
-                entity_id: "{{ status_helper }}"
-              data:
-                value: "Waiting for door to close (final)..."
-
-        - wait_for_trigger:
             - platform: state
-              entity_id: !input door_sensor
-              from: "on"
-              to: "off"
-          timeout: !input door_close_timeout
+              entity_id: !input person_sensor
+              to: "on"
+          timeout:
+            minutes: !input stability_minutes
           continue_on_timeout: true
 
         - if:
             - condition: template
-              value_template: "{{ wait.trigger is none }}"
-          then:
-            - if: "{{ status_helper != '' }}"
-              then:
-                - service: input_text.set_value
-                  target:
-                    entity_id: "{{ status_helper }}"
-                  data:
-                    value: "Failed - door never closed after return"
-            - stop: "Door didn't close after return"
-
-        # If she's still visible outside, or a person is still out there,
-        # don't treat this door close as the trip being over - someone
-        # likely used the door for something unrelated (checking the
-        # mail, gardening, etc), or a family member is still in the yard
-        # with her. The loop's "until" check above will send it around
-        # again to wait for the yard to actually be clear.
-        - if:
-            - condition: template
-              value_template: >
-                {{ states(animal_sensor) == 'on' or
-                   (person_sensor != '' and states(person_sensor) == 'on') }}
+              value_template: "{{ wait.trigger is not none }}"
           then:
             - if: "{{ status_helper != '' }}"
               then:
@@ -285,16 +362,12 @@ action:
                     entity_id: "{{ status_helper }}"
                   data:
                     value: >
-                      Door closed but {{ 'a person' if (person_sensor != '' and
-                      states(person_sensor) == 'on') else 'she' }} is still
-                      outside - waiting (attempt {{ repeat.index }} of
-                      {{ max_return_attempts }})...
+                      Detected again during stability check - waiting
+                      (attempt {{ repeat.index }} of {{ max_stability_checks }})...
 
   - if:
       - condition: template
-        value_template: >
-          {{ states(animal_sensor) == 'on' or
-             (person_sensor != '' and states(person_sensor) == 'on') }}
+        value_template: "{{ wait.trigger is not none }}"
     then:
       - if: "{{ status_helper != '' }}"
         then:
@@ -302,8 +375,8 @@ action:
             target:
               entity_id: "{{ status_helper }}"
             data:
-              value: "Failed - gave up waiting for the yard to be clear"
-      - stop: "Yard never cleared after repeated attempts"
+              value: "Failed - yard never stayed clear long enough"
+      - stop: "Yard never stabilized after repeated attempts"
 
   - service: script.turn_on
     target:
