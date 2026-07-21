@@ -24,7 +24,7 @@ flowchart TD
     D -- No --> F3[❌ Stop — log failure]
     D -- Yes --> E{Door closes<br/>within timeout?}
     E -- No --> F4[❌ Stop — log failure]
-    E -- Yes --> S{Still detected<br/>outside?}
+    E -- Yes --> S{Still detected<br/>outside? (dog or,<br/>if configured, a person)}
     S -- Yes, up to N tries --> D
     S -- No --> G[✅ Run your script]
     S -- Yes, limit exceeded --> F5[❌ Stop — log failure]
@@ -56,6 +56,12 @@ extra door cycle from family members counts as one attempt). If you go
 out specifically to call her in and she comes back with you, this doesn't
 change anything — the door closing with her actually inside completes the
 sequence normally.
+
+Optionally, you can also set a **Person Detection Sensor**. If configured,
+the same safeguard applies to people too — so if a family member is still
+out in the garden or on the deck when the dog comes back in, the
+automation waits for them to clear the yard as well before running the
+script.
 
 ---
 
@@ -234,6 +240,7 @@ blueprint** → **"Dog Potty Door-to-Door Automation."** Then fill in:
 |---|---|---|
 | Door Sensor | Your door's binary sensor | — |
 | Animal Detection Sensor | Your camera's animal-detected sensor | — |
+| Person Detection Sensor *(optional)* | Your camera's person-detected sensor. If set, the automation also waits for the yard to be clear of people, not just the dog, before firing | blank |
 | Script to Run | The script from Step 1 (or your custom one) | — |
 | Cooldown (seconds) | Minimum gap between runs; `0` disables | 600 |
 | Door Close Timeout | How long to wait for the door to close | 2 min |
@@ -292,7 +299,7 @@ exists and can be triggered by `script.turn_on`.
 | Fails with "no animal detected" | Animal detection may be disabled on the camera, the dog may be out of frame, sensitivity needs tuning, or you selected the wrong sensor (e.g. a "detection enabled" toggle instead of the actual event sensor — see Step 2) |
 | Fails with "door never closed" | Timeout too short for how long the door's typically left open — raise **Door Close Timeout** |
 | Sprinklers never run even though everything looks right | Check **Cooldown** — if it ran recently, it intentionally skips |
-| Fails with "gave up waiting for her to come inside" | The animal sensor stayed "on" through your **Max Return Attempts** limit — likely the camera is falsely detecting something else as an animal (a plant moving, a shadow), the family is cycling the door more than expected (raise the limit), or she's genuinely lingering outside longer than the door cycles suggest |
+| Fails with "gave up waiting for the yard to be clear" | The animal (or person, if configured) sensor stayed "on" through your **Max Return Attempts** limit — likely the camera is falsely detecting something as an animal/person (a plant moving, a shadow), the family is cycling the door more than expected (raise the limit), or someone/she is genuinely lingering outside longer than the door cycles suggest |
 | Automation runs but nothing happens | Confirm the **Script to Run** works standalone: Settings → Automations & Scenes → Scripts → Run |
 
 ---

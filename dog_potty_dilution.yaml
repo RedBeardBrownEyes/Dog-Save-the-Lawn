@@ -14,7 +14,9 @@ blueprint:
     heads out onto a deck), the automation checks that the animal sensor
     has actually cleared before running the script - if she's still
     visible outside, it waits for the real return instead of firing
-    early, up to a configurable number of attempts.
+    early, up to a configurable number of attempts. Optionally, it can
+    also wait for a person-detection sensor to clear, in case a family
+    member is still out in the yard when the dog comes back in.
 
     Includes an optional cooldown to prevent re-triggering on back-to-back
     trips, and an optional status helper for dashboard visibility.
@@ -32,6 +34,19 @@ blueprint:
     animal_sensor:
       name: Animal Detection Sensor
       description: Binary sensor that turns on when the camera detects an animal
+      selector:
+        entity:
+          domain: binary_sensor
+
+    person_sensor:
+      name: Person Detection Sensor (optional)
+      description: >
+        Optional binary sensor that turns on when the camera detects a
+        person. If set, the automation will also wait for the yard to be
+        clear of people before running the script - useful if a family
+        member might still be out in the garden or on the deck when the
+        dog comes back in. Leave blank to skip this check.
+      default: ""
       selector:
         entity:
           domain: binary_sensor
@@ -118,6 +133,7 @@ variables:
   last_run_helper: !input last_run_helper
   cooldown_seconds: !input cooldown_seconds
   animal_sensor: !input animal_sensor
+  person_sensor: !input person_sensor
   max_return_attempts: !input max_return_attempts
 
 condition:
@@ -196,7 +212,9 @@ action:
       until:
         - condition: template
           value_template: >
-            {{ states(animal_sensor) == 'off' or repeat.index >= max_return_attempts }}
+            {{ (states(animal_sensor) == 'off' and
+                (person_sensor == '' or states(person_sensor) == 'off'))
+               or repeat.index >= max_return_attempts }}
       sequence:
         - wait_for_trigger:
             - platform: state
@@ -248,14 +266,17 @@ action:
                     value: "Failed - door never closed after return"
             - stop: "Door didn't close after return"
 
-        # If she's still visible outside after the door closes, someone
-        # else likely used the door for something unrelated (checking the
-        # mail, gardening, etc). Don't treat this as her being back inside
-        # - the loop's "until" check above will send it around again to
-        # wait for the real return instead of firing the script early.
+        # If she's still visible outside, or a person is still out there,
+        # don't treat this door close as the trip being over - someone
+        # likely used the door for something unrelated (checking the
+        # mail, gardening, etc), or a family member is still in the yard
+        # with her. The loop's "until" check above will send it around
+        # again to wait for the yard to actually be clear.
         - if:
             - condition: template
-              value_template: "{{ states(animal_sensor) == 'on' }}"
+              value_template: >
+                {{ states(animal_sensor) == 'on' or
+                   (person_sensor != '' and states(person_sensor) == 'on') }}
           then:
             - if: "{{ status_helper != '' }}"
               then:
@@ -264,12 +285,16 @@ action:
                     entity_id: "{{ status_helper }}"
                   data:
                     value: >
-                      Door closed but she's still outside - waiting
-                      (attempt {{ repeat.index }} of {{ max_return_attempts }})...
+                      Door closed but {{ 'a person' if (person_sensor != '' and
+                      states(person_sensor) == 'on') else 'she' }} is still
+                      outside - waiting (attempt {{ repeat.index }} of
+                      {{ max_return_attempts }})...
 
   - if:
       - condition: template
-        value_template: "{{ states(animal_sensor) == 'on' }}"
+        value_template: >
+          {{ states(animal_sensor) == 'on' or
+             (person_sensor != '' and states(person_sensor) == 'on') }}
     then:
       - if: "{{ status_helper != '' }}"
         then:
@@ -277,8 +302,8 @@ action:
             target:
               entity_id: "{{ status_helper }}"
             data:
-              value: "Failed - gave up waiting for her to come inside"
-      - stop: "Animal sensor never cleared after repeated attempts"
+              value: "Failed - gave up waiting for the yard to be clear"
+      - stop: "Yard never cleared after repeated attempts"
 
   - service: script.turn_on
     target:
