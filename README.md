@@ -24,7 +24,7 @@ flowchart TD
     D -- No --> F3[❌ Stop — log failure]
     D -- Yes --> E{Door closes<br/>within timeout?}
     E -- No --> F4[❌ Stop — log failure]
-    E -- Yes --> S{Still detected<br/>outside? (dog or,<br/>if configured, a person)}
+    E -- Yes --> S{Still detected<br/>outside?}
     S -- Yes, up to N tries --> D
     S -- No --> G[✅ Run your script]
     S -- Yes, limit exceeded --> F5[❌ Stop — log failure]
