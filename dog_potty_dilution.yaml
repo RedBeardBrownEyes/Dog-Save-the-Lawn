@@ -25,11 +25,19 @@ blueprint:
   input:
     door_sensor:
       name: Door Sensor
-      description: Binary sensor for the door the dog goes out/in through
+      description: >
+        Binary sensor for the door the dog goes out/in through. If it
+        doesn't appear in the picker, your sensor may not be classified
+        as "door" - try widening the entity search in Home Assistant, or
+        change the sensor's device class under its entity settings.
       selector:
         entity:
           domain: binary_sensor
-          device_class: door
+          device_class:
+            - door
+            - garage_door
+            - opening
+            - window
 
     animal_sensor:
       name: Animal Detection Sensor

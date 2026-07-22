@@ -295,7 +295,8 @@ exists and can be triggered by `script.turn_on`.
 
 | Symptom | Likely cause |
 |---|---|
-| Automation never triggers | Confirm the door sensor's `device_class` is `door` and it flips `off`→`on` on open (check **Developer Tools → States**) |
+| Door Sensor picker shows no entities | Your sensor's `device_class` isn't one the picker looks for (`door`, `garage_door`, `opening`, `window`). Check **Settings → Devices & Services → Entities → your sensor → gear icon → Device class**, and set it to one of those if needed |
+| Automation never triggers | Confirm the door sensor actually flips `off`→`on` on open (check **Developer Tools → States**) |
 | Fails with "no animal detected" | Animal detection may be disabled on the camera, the dog may be out of frame, sensitivity needs tuning, or you selected the wrong sensor (e.g. a "detection enabled" toggle instead of the actual event sensor — see Step 2) |
 | Fails with "door never closed" | Timeout too short for how long the door's typically left open — raise **Door Close Timeout** |
 | Sprinklers never run even though everything looks right | Check **Cooldown** — if it ran recently, it intentionally skips |
