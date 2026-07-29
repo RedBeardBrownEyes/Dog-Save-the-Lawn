@@ -26,7 +26,9 @@ flowchart TD
     E -- No --> F4[❌ Stop — log failure]
     E -- Yes --> S{Yard stays clear for<br/>the full stability window?}
     S -- Detected again --> S
-    S -- Yes --> G[✅ Run your script]
+    S -- Yes --> T{Within allowed<br/>watering hours?}
+    T -- No --> F6[⏭️ Skip — log reason]
+    T -- Yes --> G[✅ Run your script]
     S -- Retries exhausted --> F5[❌ Stop — log failure]
     G --> H[🚿 Sprinklers / lights /<br/>notification / anything]
 
@@ -38,6 +40,7 @@ flowchart TD
     style F3 fill:#7f1d1d,color:#fff
     style F4 fill:#7f1d1d,color:#fff
     style F5 fill:#7f1d1d,color:#fff
+    style F6 fill:#7c5e10,color:#fff
 ```
 
 Every stage has its own timeout, so a false start (opening the door for
@@ -61,6 +64,14 @@ the same safeguard applies to people too — so if a family member is still
 out in the garden or on the deck when the dog comes back in, the
 automation waits for them to clear the yard as well before running the
 script.
+
+There's also an optional **watering-hours window** (Earliest Run Time /
+Latest Run Time). The whole sequence — waiting for detection, the return,
+and the stability window — can easily take 20+ minutes, so a trip that
+starts in daylight can still finish well after dark. If the script would
+run outside your allowed hours, the automation skips it instead of
+watering the lawn overnight, since standing water overnight can encourage
+fungal growth.
 
 ---
 
@@ -248,6 +259,8 @@ blueprint** → **"Dog Potty Door-to-Door Automation."** Then fill in:
 | Last Run Helper *(optional)* | From Step 4 | blank |
 | Yard-Clear Stability Window (minutes) | How long the yard must stay continuously clear of the animal (and person, if set) after the return door closes, before the script runs | 5 |
 | Max Stability Retries | Safety cap on how many times the stability window can reset before giving up, in case a sensor flickers indefinitely | 10 |
+| Earliest Run Time *(optional)* | Script won't run before this time of day | blank |
+| Latest Run Time *(optional)* | Script won't run after this time of day — useful for keeping water off the lawn overnight, which can encourage fungus | blank |
 
 Save.
 
@@ -300,6 +313,7 @@ exists and can be triggered by `script.turn_on`.
 | Fails with "no animal detected" | Animal detection may be disabled on the camera, the dog may be out of frame, sensitivity needs tuning, or you selected the wrong sensor (e.g. a "detection enabled" toggle instead of the actual event sensor — see Step 2) |
 | Fails with "door never closed" | Timeout too short for how long the door's typically left open — raise **Door Close Timeout** |
 | Sprinklers never run even though everything looks right | Check **Cooldown** — if it ran recently, it intentionally skips |
+| Status shows "Skipped - outside allowed watering hours" | Working as intended — the sequence finished outside your **Earliest/Latest Run Time** window and deliberately didn't water. Widen the window if this happens more than you'd like |
 | Fails with "yard never cleared" / "yard never cleared of people" | The animal or person sensor never went "off" at all within the detection timeout — check the sensor is working and the camera has a clear view |
 | Fails with "yard never stayed clear long enough" | Something keeps getting detected right before the stability window finishes — likely a flickering false detection (a plant moving, a shadow), or the family is genuinely still using the yard. Raise **Max Stability Retries** or shorten the **Stability Window** if this happens often |
 | Automation runs but nothing happens | Confirm the **Script to Run** works standalone: Settings → Automations & Scenes → Scripts → Run |

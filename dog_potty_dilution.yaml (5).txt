@@ -1,0 +1,459 @@
+blueprint:
+  name: Dog Potty Door-to-Door Automation
+  description: >
+    Tracks a dog's potty trip from start to finish using a door sensor and
+    an animal-detection sensor (e.g. a UniFi Protect camera), then runs a
+    script once the yard is confirmed clear. Built for sprinkler dilution
+    after a dog urinates on the lawn, but the triggered script can be
+    anything.
+
+    Sequence: door opens -> door closes -> animal detected in yard ->
+    door opens again -> door closes -> yard stays clear for a stability
+    window -> run script.
+
+    Rather than assuming the dog is back the moment the door closes, the
+    automation waits until the animal sensor (and, optionally, a person
+    sensor) has been continuously clear for a few minutes before running
+    the script. This avoids false triggers from someone else using the
+    door, a family member still being out in the yard, or the dog
+    stepping back outside briefly.
+
+    Includes an optional cooldown to prevent re-triggering on back-to-back
+    trips, an optional watering-hours window to avoid running the script
+    late at night (helpful for avoiding lawn fungus), and an optional
+    status helper for dashboard visibility.
+  domain: automation
+  source_url: https://github.com/RedBeardBrownEyes/Dog-Save-the-Lawn/blob/main/dog_potty_dilution.yaml
+  input:
+    door_sensor:
+      name: Door Sensor
+      description: >
+        Binary sensor for the door the dog goes out/in through. If it
+        doesn't appear in the picker, your sensor may not be classified
+        as "door" - try widening the entity search in Home Assistant, or
+        change the sensor's device class under its entity settings.
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class:
+            - door
+            - garage_door
+            - opening
+            - window
+
+    animal_sensor:
+      name: Animal Detection Sensor
+      description: Binary sensor that turns on when the camera detects an animal
+      selector:
+        entity:
+          domain: binary_sensor
+
+    person_sensor:
+      name: Person Detection Sensor (optional)
+      description: >
+        Optional binary sensor that turns on when the camera detects a
+        person. If set, the automation will also require the yard to be
+        clear of people before running the script - useful if a family
+        member might still be out in the garden or on the deck when the
+        dog comes back in. Leave blank to skip this check.
+      default: ""
+      selector:
+        entity:
+          domain: binary_sensor
+
+    trigger_script:
+      name: Script to Run
+      description: Script to run once the yard is confirmed clear (e.g. sprinklers)
+      selector:
+        entity:
+          domain: script
+
+    cooldown_seconds:
+      name: Cooldown (seconds)
+      description: >
+        Minimum time between runs to avoid re-triggering on back-to-back
+        trips. Set to 0 to disable.
+      default: 600
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+
+    door_close_timeout:
+      name: Door Close Timeout
+      description: How long to wait for the door to close after opening
+      default: "00:02:00"
+      selector:
+        time: {}
+
+    detection_timeout:
+      name: Detection / Return Timeout
+      description: >
+        How long to wait for the animal to be detected, and separately,
+        how long to wait for the dog to come back to the door
+      default: "00:20:00"
+      selector:
+        time: {}
+
+    stability_minutes:
+      name: Yard-Clear Stability Window (minutes)
+      description: >
+        After the return door closes, how long the animal (and person,
+        if set) sensor must stay continuously clear before the script
+        runs. If anything is detected again during this window, the
+        clock resets and it waits again - this handles cases where the
+        dog steps back outside, or a family member is still out in the
+        garden or on a deck, without needing to track door cycles at all.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 30
+          unit_of_measurement: minutes
+
+    max_stability_checks:
+      name: Max Stability Retries
+      description: >
+        Safety cap on how many times the stability window can reset
+        before the automation gives up (protects against a sensor that
+        flickers on/off indefinitely). Most trips will only need this
+        to happen once or twice.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 50
+
+    earliest_run_time:
+      name: Earliest Run Time (optional)
+      description: >
+        If set, the script will only run at or after this time of day.
+        Combined with Latest Run Time, this keeps water off the lawn
+        overnight, which can encourage fungal growth. Leave blank for
+        no restriction.
+      default: ""
+      selector:
+        time: {}
+
+    latest_run_time:
+      name: Latest Run Time (optional)
+      description: >
+        If set, the script will only run at or before this time of day.
+        If the automation finishes its checks outside this window (e.g.
+        the whole sequence ran long and it's now late evening), it will
+        skip running the script rather than water the lawn overnight.
+        Leave blank for no restriction.
+      default: ""
+      selector:
+        time: {}
+
+    status_helper:
+      name: Status Helper (optional)
+      description: >
+        Optional input_text helper. If set, the automation will write live
+        progress and success/failure messages to it, which you can show on
+        a dashboard. Leave blank to skip.
+      default: ""
+      selector:
+        entity:
+          domain: input_text
+
+    last_run_helper:
+      name: Last Run Helper (optional)
+      description: >
+        Optional input_datetime helper used to enforce the cooldown above
+        and to show the last successful run time on a dashboard. Leave
+        blank to skip the cooldown check entirely.
+      default: ""
+      selector:
+        entity:
+          domain: input_datetime
+
+trigger:
+  - platform: state
+    entity_id: !input door_sensor
+    from: "off"
+    to: "on"
+
+variables:
+  status_helper: !input status_helper
+  last_run_helper: !input last_run_helper
+  cooldown_seconds: !input cooldown_seconds
+  animal_sensor: !input animal_sensor
+  person_sensor: !input person_sensor
+  stability_minutes: !input stability_minutes
+  max_stability_checks: !input max_stability_checks
+  earliest_run_time: !input earliest_run_time
+  latest_run_time: !input latest_run_time
+
+condition:
+  - condition: template
+    value_template: >
+      {{ last_run_helper == '' or
+         (as_timestamp(now()) - as_timestamp(states(last_run_helper), 0)) > cooldown_seconds }}
+
+action:
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Waiting for door to close..."
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input door_sensor
+        from: "on"
+        to: "off"
+    timeout: !input door_close_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - door never closed"
+      - stop: "Door didn't close in time"
+
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Waiting for dog detection..."
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input animal_sensor
+        to: "on"
+    timeout: !input detection_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - no animal detected"
+      - stop: "No animal detected in time"
+
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Waiting for door to open (return)..."
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input door_sensor
+        from: "off"
+        to: "on"
+    timeout: !input detection_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - door never reopened"
+      - stop: "Door didn't reopen in time"
+
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Waiting for door to close (final)..."
+
+  - wait_for_trigger:
+      - platform: state
+        entity_id: !input door_sensor
+        from: "on"
+        to: "off"
+    timeout: !input door_close_timeout
+    continue_on_timeout: true
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - door never closed after return"
+      - stop: "Door didn't close after return"
+
+  # Stability check: rather than trusting the door close as proof the
+  # yard is empty, keep watching the animal (and optional person) sensor
+  # until it has been continuously "off" for the full stability window.
+  # Each time something is detected again during the window, the clock
+  # resets and it tries again, up to max_stability_checks.
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Confirming yard is clear..."
+
+  - repeat:
+      until:
+        - condition: template
+          value_template: "{{ wait.trigger is none or repeat.index >= max_stability_checks }}"
+      sequence:
+        - if:
+            - condition: template
+              value_template: "{{ states(animal_sensor) != 'off' }}"
+          then:
+            - wait_for_trigger:
+                - platform: state
+                  entity_id: !input animal_sensor
+                  to: "off"
+              timeout: !input detection_timeout
+              continue_on_timeout: true
+
+            - if:
+                - condition: template
+                  value_template: "{{ states(animal_sensor) != 'off' }}"
+              then:
+                - if: "{{ status_helper != '' }}"
+                  then:
+                    - service: input_text.set_value
+                      target:
+                        entity_id: "{{ status_helper }}"
+                      data:
+                        value: "Failed - yard never cleared"
+                - stop: "Animal sensor never cleared"
+
+        - if:
+            - condition: template
+              value_template: "{{ person_sensor != '' and states(person_sensor) != 'off' }}"
+          then:
+            - wait_for_trigger:
+                - platform: state
+                  entity_id: !input person_sensor
+                  to: "off"
+              timeout: !input detection_timeout
+              continue_on_timeout: true
+
+            - if:
+                - condition: template
+                  value_template: "{{ states(person_sensor) != 'off' }}"
+              then:
+                - if: "{{ status_helper != '' }}"
+                  then:
+                    - service: input_text.set_value
+                      target:
+                        entity_id: "{{ status_helper }}"
+                      data:
+                        value: "Failed - yard never cleared of people"
+                - stop: "Person sensor never cleared"
+
+        - wait_for_trigger:
+            - platform: state
+              entity_id: !input animal_sensor
+              to: "on"
+            - platform: state
+              entity_id: !input person_sensor
+              to: "on"
+          timeout:
+            minutes: !input stability_minutes
+          continue_on_timeout: true
+
+        - if:
+            - condition: template
+              value_template: "{{ wait.trigger is not none }}"
+          then:
+            - if: "{{ status_helper != '' }}"
+              then:
+                - service: input_text.set_value
+                  target:
+                    entity_id: "{{ status_helper }}"
+                  data:
+                    value: >
+                      Detected again during stability check - waiting
+                      (attempt {{ repeat.index }} of {{ max_stability_checks }})...
+
+  - if:
+      - condition: template
+        value_template: "{{ wait.trigger is not none }}"
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "Failed - yard never stayed clear long enough"
+      - stop: "Yard never stabilized after repeated attempts"
+
+  # Time-window guard: even though the yard is confirmed clear, don't
+  # water outside the allowed hours (e.g. late evening), since wet grass
+  # sitting overnight can encourage fungal growth. This is checked here,
+  # right before running the script, rather than at the start - the
+  # whole sequence above can easily take 20+ minutes, so "started in
+  # daylight" doesn't guarantee "finished in daylight."
+  - if:
+      - condition: template
+        value_template: >
+          {{ (earliest_run_time != '' and now().strftime('%H:%M:%S') < earliest_run_time)
+             or (latest_run_time != '' and now().strftime('%H:%M:%S') > latest_run_time) }}
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: >
+                Skipped - outside allowed watering hours
+                ({{ now().strftime('%-I:%M %p') }})
+      - stop: "Outside allowed watering window"
+
+  - service: script.turn_on
+    target:
+      entity_id: !input trigger_script
+
+  - if: "{{ last_run_helper != '' }}"
+    then:
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: "{{ last_run_helper }}"
+        data:
+          timestamp: "{{ as_timestamp(now()) }}"
+
+  - if: "{{ status_helper != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ status_helper }}"
+        data:
+          value: "Success - ran at {{ now().strftime('%-I:%M %p') }}"
+
+mode: single
