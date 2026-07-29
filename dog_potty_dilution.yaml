@@ -19,7 +19,9 @@ blueprint:
     stepping back outside briefly.
 
     Includes an optional cooldown to prevent re-triggering on back-to-back
-    trips, and an optional status helper for dashboard visibility.
+    trips, an optional watering-hours window to avoid running the script
+    late at night (helpful for avoiding lawn fungus), and an optional
+    status helper for dashboard visibility.
   domain: automation
   source_url: https://github.com/RedBeardBrownEyes/Dog-Save-the-Lawn/blob/main/dog_potty_dilution.yaml
   input:
@@ -123,6 +125,29 @@ blueprint:
           min: 1
           max: 50
 
+    earliest_run_time:
+      name: Earliest Run Time (optional)
+      description: >
+        If set, the script will only run at or after this time of day.
+        Combined with Latest Run Time, this keeps water off the lawn
+        overnight, which can encourage fungal growth. Leave blank for
+        no restriction.
+      default: ""
+      selector:
+        time: {}
+
+    latest_run_time:
+      name: Latest Run Time (optional)
+      description: >
+        If set, the script will only run at or before this time of day.
+        If the automation finishes its checks outside this window (e.g.
+        the whole sequence ran long and it's now late evening), it will
+        skip running the script rather than water the lawn overnight.
+        Leave blank for no restriction.
+      default: ""
+      selector:
+        time: {}
+
     status_helper:
       name: Status Helper (optional)
       description: >
@@ -159,6 +184,8 @@ variables:
   person_sensor: !input person_sensor
   stability_minutes: !input stability_minutes
   max_stability_checks: !input max_stability_checks
+  earliest_run_time: !input earliest_run_time
+  latest_run_time: !input latest_run_time
 
 condition:
   - condition: template
@@ -385,6 +412,29 @@ action:
             data:
               value: "Failed - yard never stayed clear long enough"
       - stop: "Yard never stabilized after repeated attempts"
+
+  # Time-window guard: even though the yard is confirmed clear, don't
+  # water outside the allowed hours (e.g. late evening), since wet grass
+  # sitting overnight can encourage fungal growth. This is checked here,
+  # right before running the script, rather than at the start - the
+  # whole sequence above can easily take 20+ minutes, so "started in
+  # daylight" doesn't guarantee "finished in daylight."
+  - if:
+      - condition: template
+        value_template: >
+          {{ (earliest_run_time != '' and now().strftime('%H:%M:%S') < earliest_run_time)
+             or (latest_run_time != '' and now().strftime('%H:%M:%S') > latest_run_time) }}
+    then:
+      - if: "{{ status_helper != '' }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: >
+                Skipped - outside allowed watering hours
+                ({{ now().strftime('%-I:%M %p') }})
+      - stop: "Outside allowed watering window"
 
   - service: script.turn_on
     target:
