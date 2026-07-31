@@ -254,7 +254,8 @@ blueprint** → **"Dog Potty Door-to-Door Automation."** Then fill in:
 | Script to Run | The script from Step 1 (or your custom one) | — |
 | Cooldown (seconds) | Minimum gap between runs; `0` disables | 600 |
 | Door Close Timeout | How long to wait for the door to close | 2 min |
-| Detection / Return Timeout | How long to wait for detection, and separately for the return trip | 20 min |
+| Detection Timeout | How long to wait for the animal to first be detected in the yard | 20 min |
+| Return Timeout | How long to wait for the door to reopen once she's outside. Set this much longer if your dog tends to linger or sunbathe before coming back | 1 hour |
 | Status Helper *(optional)* | From Step 4 | blank |
 | Last Run Helper *(optional)* | From Step 4 | blank |
 | Yard-Clear Stability Window (minutes) | How long the yard must stay continuously clear of the animal (and person, if set) after the return door closes, before the script runs | 5 |
@@ -311,6 +312,7 @@ exists and can be triggered by `script.turn_on`.
 | Door Sensor picker shows no entities | Your sensor's `device_class` isn't one the picker looks for (`door`, `garage_door`, `opening`, `window`). Check **Settings → Devices & Services → Entities → your sensor → gear icon → Device class**, and set it to one of those if needed |
 | Automation never triggers | Confirm the door sensor actually flips `off`→`on` on open (check **Developer Tools → States**) |
 | Fails with "no animal detected" | Animal detection may be disabled on the camera, the dog may be out of frame, sensitivity needs tuning, or you selected the wrong sensor (e.g. a "detection enabled" toggle instead of the actual event sensor — see Step 2) |
+| Fails with "door never reopened" (dog sunbathes or lingers a long time before coming back) | Raise **Return Timeout** — it's separate from **Detection Timeout** specifically so you can give the return trip much more time (a few hours is fine) without also loosening how quickly she needs to first show up on camera |
 | Fails with "door never closed" | Timeout too short for how long the door's typically left open — raise **Door Close Timeout** |
 | Sprinklers never run even though everything looks right | Check **Cooldown** — if it ran recently, it intentionally skips |
 | Status shows "Skipped - outside allowed watering hours" | Working as intended — the sequence finished outside your **Earliest/Latest Run Time** window and deliberately didn't water. Widen the window if this happens more than you'd like |

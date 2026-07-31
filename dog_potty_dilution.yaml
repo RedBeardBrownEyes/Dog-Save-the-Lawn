@@ -88,11 +88,23 @@ blueprint:
         time: {}
 
     detection_timeout:
-      name: Detection / Return Timeout
+      name: Detection Timeout
       description: >
-        How long to wait for the animal to be detected, and separately,
-        how long to wait for the dog to come back to the door
+        How long to wait for the animal to first be detected in the yard
+        after the door closes behind her.
       default: "00:20:00"
+      selector:
+        time: {}
+
+    return_timeout:
+      name: Return Timeout
+      description: >
+        How long to wait for the door to open again once she's been
+        detected outside. If your dog tends to linger or sunbathe before
+        coming back, set this much longer than the Detection Timeout
+        above (a few hours is fine) so a long stay outside doesn't cause
+        a false "she never came back" failure.
+      default: "01:00:00"
       selector:
         time: {}
 
@@ -264,7 +276,7 @@ action:
         entity_id: !input door_sensor
         from: "off"
         to: "on"
-    timeout: !input detection_timeout
+    timeout: !input return_timeout
     continue_on_timeout: true
 
   - if:
